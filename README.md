@@ -1,0 +1,1119 @@
+# SupportAgent.NET
+
+## ERP / CRM Business Data
+
+Phase 12 adds tenant-scoped Products, Invoices, Invoice Items, Payments, and Inventory. The model is `Customer -> Invoices -> Invoice Items -> Products`, with `Invoice -> Payments` and `Product -> Inventory`. Staff use `/invoices`; customers see only their own records at `/portal/invoices`.
+
+## Invoice Intelligence
+
+Controlled native tools include `GetInvoice`, `GetCustomerInvoices`, `GetCustomerBalance`, `GetInventoryStatus`, `GetLowStockProducts`, and `GetSalesSummary`. The LLM does **not** calculate financial truth: decimal totals, payments, balances, inventory state, and summaries come from tenant-scoped .NET services. Arbitrary SQL is not available.
+
+## Invoice PDF
+
+Staff and customers can download trusted database-backed PDFs from invoice details. PDFs use PDFsharp 6.2.3 (MIT); the LLM never generates totals, taxes, discounts, or payments.
+
+[![GitHub](https://img.shields.io/badge/GitHub-rahmatafridi%2FSupportAgent.NET-181717?logo=github)](https://github.com/rahmatafridi/SupportAgent.NET)
+
+Open-source AI Customer Support Agent Starter Kit built with **ASP.NET Core, React, SQL Server, native LLM tool calling, RAG, embeddings, and conversation state**.
+
+Repository: **https://github.com/rahmatafridi/SupportAgent.NET**
+
+SupportAgent.NET demonstrates how to build a real AI-enabled customer support application where the LLM works as an intelligence layer over normal .NET services instead of acting as a standalone chatbot.
+
+The project is designed for developers who want to learn from it, fork it, connect their own database and company knowledge, or extend it into a production SaaS application.
+
+---
+
+## Why SupportAgent.NET?
+
+Most AI demos stop at:
+
+```text
+User → Prompt → LLM → Text
+```
+
+SupportAgent.NET demonstrates a more realistic application architecture:
+
+```text
+User
+  ↓
+Support Interface
+  ↓
+ASP.NET Core API
+  ↓
+LLM
+  ↓
+Native Tool Calling
+  ↓
+.NET Business Services
+  ↓
+SQL Server / Company Knowledge
+  ↓
+LLM
+  ↓
+Grounded Response
+```
+
+The LLM decides when it needs a tool.
+
+There is **no keyword-based routing** such as:
+
+```csharp
+if (prompt.Contains("customer"))
+```
+
+Instead, supported LLMs use native function/tool calling.
+
+---
+
+## Current Features
+
+| Area | What you get |
+|---|---|
+| **AI Gateway** | Provider-independent abstraction for Ollama and OpenAI |
+| **Native tool calling** | `GetCustomer`, `GetOrderStatus`, `SearchKnowledgeBase` |
+| **RAG** | Company documents chunked and stored in SQL Server |
+| **Semantic search** | Embeddings via `nomic-embed-text` + hybrid lexical ranking |
+| **Grounding** | Business facts from tools/DB; policies from knowledge base |
+| **Support workspace** | React UI: tickets, conversation, AI assistant panel |
+| **Conversation state** | AI conversations persisted in SQL Server |
+| **Suggested replies** | Structured draft replies for human review (not auto-sent) |
+
+---
+
+## Technology Stack
+
+- **Backend:** .NET 10, ASP.NET Core Web API
+- **Frontend:** React, TypeScript, Vite
+- **Database:** SQL Server
+- **AI:** Ollama or OpenAI via `IAIGateway`
+- **Embeddings:** Ollama `nomic-embed-text` (local) or configured provider
+- **Tests:** xUnit
+
+---
+
+## Prerequisites
+
+Before running the project, install:
+
+1. [.NET 10 SDK](https://dotnet.microsoft.com/download)
+2. [Node.js 20+](https://nodejs.org/) and npm
+3. [SQL Server](https://www.microsoft.com/sql-server) (LocalDB, Express, or full instance)
+4. One AI provider:
+   - **[Ollama](https://ollama.com/)** for local LLM + embeddings, or
+   - **OpenAI API key** for cloud LLM
+
+Optional:
+
+- [Visual Studio 2022](https://visualstudio.microsoft.com/) for F5 debugging
+- [EF Core CLI](https://learn.microsoft.com/ef/core/cli/dotnet) for migrations:
+
+```bash
+dotnet tool install --global dotnet-ef
+```
+
+---
+
+## Quick Start
+
+### 1. Clone the repository
+
+```bash
+git clone https://github.com/rahmatafridi/SupportAgent.NET.git
+cd SupportAgent.NET
+```
+
+### 2. Configure SQL Server
+
+Update the connection string in `src/SupportAgent.Api/appsettings.Development.json`:
+
+```json
+{
+  "ConnectionStrings": {
+    "DefaultConnection": "Server=localhost;Database=SupportAgentDb;Trusted_Connection=True;TrustServerCertificate=True;"
+  }
+}
+```
+
+Adjust `Server=` for your SQL Server instance if needed.
+
+### 3. Create the database schema
+
+From the repository root:
+
+```bash
+dotnet restore
+dotnet ef database update --project src/SupportAgent.Infrastructure --startup-project src/SupportAgent.Api
+```
+
+This applies all EF Core migrations, including:
+
+- customers, orders, tickets, ticket messages
+- knowledge documents and chunks
+- embeddings (`EmbeddingJson`)
+- AI conversation tables
+
+### 4. Configure AI
+
+Edit `src/SupportAgent.Api/appsettings.Development.json`.
+
+**Option A — Ollama (local, default in `appsettings.json`)**
+
+```json
+{
+  "AI": {
+    "Ollama": {
+      "Use": true,
+      "BaseUrl": "http://localhost:11434",
+      "Model": "llama3.1"
+    },
+    "Embeddings": {
+      "Provider": "Ollama",
+      "Model": "nomic-embed-text"
+    },
+    "OpenAI": {
+      "Use": false,
+      "BaseUrl": "https://api.openai.com",
+      "Model": "gpt-4o-mini",
+      "ApiKey": ""
+    }
+  }
+}
+```
+
+Pull the models:
+
+```bash
+ollama pull llama3.1
+ollama pull nomic-embed-text
+```
+
+Use a model with **native tool calling** (for example `llama3.1`). Some coding models return tool calls as plain text instead of native function calls.
+
+**Option B — OpenAI**
+
+```json
+{
+  "AI": {
+    "Ollama": { "Use": false },
+    "OpenAI": {
+      "Use": true,
+      "BaseUrl": "https://api.openai.com",
+      "Model": "gpt-4o-mini",
+      "ApiKey": ""
+    }
+  }
+}
+```
+
+Set exactly one provider to `"Use": true`.
+
+Do **not** commit API keys. Prefer environment variables:
+
+```bash
+set OPENAI_API_KEY=your-key-here
+```
+
+Or .NET user secrets:
+
+```bash
+dotnet user-secrets set "AI:OpenAI:ApiKey" "your-key-here" --project src/SupportAgent.Api
+```
+
+### 5. Start the backend
+
+```bash
+dotnet run --project src/SupportAgent.Api
+```
+
+The API runs at **http://localhost:5191**.
+
+On first startup in Development, the app seeds sample data when the database is empty:
+
+- Customer **101** — John Smith
+- Orders **1** and **2**
+- Ticket **1001** — "Where is my order?"
+- Sample company knowledge (refund, shipping, etc.)
+
+Verify the API:
+
+```bash
+curl http://localhost:5191/api/health
+```
+
+Expected:
+
+```json
+{
+  "status": "ok",
+  "application": "SupportAgent.NET"
+}
+```
+
+### 6. Start the frontend
+
+In a second terminal:
+
+```bash
+cd src/SupportAgent.Web
+npm install
+npm run dev
+```
+
+The frontend runs at **http://localhost:5173** and proxies `/api` to the backend.
+
+### 7. Try the application
+
+| What | URL | Purpose |
+|---|---|---|
+| Homepage + chat test | http://localhost:5173/ | Quick AI chat smoke test |
+| Support workspace | http://localhost:5173/tickets | Ticket list + AI copilot |
+| Ticket detail | http://localhost:5173/tickets/1001 | Conversation + AI panel |
+| Swagger UI | http://localhost:5191/swagger | Explore all API endpoints |
+
+**Suggested first checks:**
+
+1. Open `/tickets/1001`
+2. In the AI panel, ask: `What is happening with this customer?`
+3. Click **Generate Reply** to get a suggested draft (not sent automatically)
+4. On the homepage, try: `Who is customer 101?`
+
+### 8. Run tests
+
+```bash
+dotnet test tests/SupportAgent.Tests
+```
+
+---
+
+## Run from Visual Studio
+
+1. Run `npm install` once in `src/SupportAgent.Web`
+2. Apply migrations (step 3 above) before first run
+3. Right-click the **solution** → **Properties** → **Startup Project**
+4. Select **Multiple startup projects**
+5. Set **SupportAgent.Api** and **SupportAgent.Web** both to **Start**
+6. Press **F5**
+
+---
+
+## Project Structure
+
+```text
+SupportAgent.NET/
+├── src/
+│   ├── SupportAgent.Api/            # ASP.NET Core Web API
+│   ├── SupportAgent.Core/           # Domain models, interfaces, DTOs
+│   ├── SupportAgent.Infrastructure/ # EF Core, services, AI providers, RAG
+│   └── SupportAgent.Web/            # React + TypeScript frontend
+├── tests/
+│   └── SupportAgent.Tests/          # Backend tests
+├── README.md
+└── SupportAgent.sln
+```
+
+---
+
+## AI Gateway
+
+Provider-independent AI abstraction:
+
+```text
+IAIGateway
+  ↓
+AIGatewayService
+  ↓
+IAIProvider
+  ↓
+Ollama / OpenAI
+```
+
+When tools are enabled, the gateway runs a tool loop:
+
+```text
+User message
+  ↓
+LLM decides tool(s)
+  ↓
+AIToolExecutor
+  ↓
+.NET business service
+  ↓
+SQL Server / knowledge retrieval
+  ↓
+Tool result back to LLM
+  ↓
+Final grounded answer
+```
+
+Configuration uses `AI:Ollama:Use` and `AI:OpenAI:Use` flags. Exactly one must be `true`.
+
+Environment variable overrides:
+
+| Variable | Purpose |
+|---|---|
+| `AI__Ollama__Use` | Enable Ollama |
+| `AI__OpenAI__Use` | Enable OpenAI |
+| `AI__Ollama__Model` | Ollama chat model |
+| `AI__OpenAI__Model` | OpenAI chat model |
+| `OPENAI_API_KEY` | OpenAI API key |
+
+---
+
+## Native LLM Tool Calling
+
+The LLM can currently call:
+
+### GetCustomer
+
+Gets customer information from the application database.
+
+```text
+User: "Who is customer 101?"
+  ↓
+LLM → GetCustomer(101)
+  ↓
+CustomerService → SQL Server
+  ↓
+LLM → final answer
+```
+
+### GetOrderStatus
+
+Gets current order information and status.
+
+```text
+User: "What is the status of order 1?"
+  ↓
+LLM → GetOrderStatus(1)
+  ↓
+OrderService → SQL Server
+  ↓
+LLM → final answer
+```
+
+### SearchKnowledgeBase
+
+Searches internal company knowledge such as refund policies, shipping policies, troubleshooting docs, and support procedures.
+
+```text
+User: "What is our refund policy?"
+  ↓
+LLM → SearchKnowledgeBase("refund policy")
+  ↓
+Hybrid knowledge retrieval
+  ↓
+LLM → grounded answer with sources
+```
+
+Example chat request:
+
+```bash
+curl -X POST http://localhost:5191/api/ai/chat \
+  -H "Content-Type: application/json" \
+  -d '{"message":"Who is customer 101?"}'
+```
+
+Example response:
+
+```json
+{
+  "text": "Customer 101 is John Smith with email john@example.com.",
+  "provider": "Ollama",
+  "model": "llama3.1",
+  "totalTokens": 120,
+  "durationMs": 4500,
+  "toolsUsed": [
+    {
+      "name": "GetCustomer",
+      "arguments": { "customerId": 101 }
+    }
+  ],
+  "sources": []
+}
+```
+
+---
+
+## RAG / Company Knowledge
+
+Company documents flow through a retrieval pipeline:
+
+```text
+Document
+  ↓
+Normalized
+  ↓
+Split into chunks
+  ↓
+Stored in SQL Server
+  ↓
+Embedded
+  ↓
+Retrieved when needed
+```
+
+The application does **not** send the complete knowledge base to the LLM. Only relevant chunks are retrieved.
+
+### Chunking
+
+- approximately **700 characters** per chunk
+- sentence-aware splitting where practical
+- overlapping context between chunks
+- chunks stored independently for retrieval
+
+### Semantic search
+
+Embeddings use **`nomic-embed-text`** via Ollama by default.
+
+Example:
+
+- Stored knowledge: *"Standard orders usually ship within 1–2 business days."*
+- User asks: *"How long before my package leaves the warehouse?"*
+- Semantic search can still match the Shipping Policy
+
+### Hybrid search
+
+Knowledge retrieval combines semantic similarity and lexical matching.
+
+Default weighting:
+
+- Semantic: **75%**
+- Lexical: **25%**
+
+Configured under `KnowledgeSearch` in appsettings.
+
+Embeddings are stored on each chunk as JSON (`EmbeddingJson`). This keeps the project portable without requiring a native SQL Server vector type yet.
+
+### Backfill embeddings
+
+If chunks exist without embeddings:
+
+```bash
+curl -X POST http://localhost:5191/api/knowledge/embeddings/rebuild
+```
+
+### Add and search knowledge directly
+
+```bash
+curl -X POST http://localhost:5191/api/knowledge/documents \
+  -H "Content-Type: application/json" \
+  -d '{"title":"Return Policy","content":"Customers may request a return within 30 days.","source":"internal-policy"}'
+```
+
+```bash
+curl "http://localhost:5191/api/knowledge/search?query=refund"
+```
+
+---
+
+## Grounding Rules
+
+SupportAgent.NET is designed to prevent the model from inventing business information.
+
+- Customer information must come from tools/database
+- Order information must come from tools/database
+- Company policies must come from the knowledge base
+- If relevant knowledge is unavailable, the assistant should say so
+- Draft replies must not claim an action occurred unless tool data proves it
+
+Knowledge answers can return their sources to the frontend.
+
+---
+
+## Customer Support Workflow
+
+The application includes a ticket-oriented support workspace.
+
+```text
+Tickets | Ticket Conversation | AI Assistant
+```
+
+Support agents can:
+
+- browse tickets
+- view ticket conversations
+- ask the AI questions about a ticket
+- inspect tools used by the LLM
+- view knowledge sources
+- generate suggested customer replies
+- copy the suggested reply
+
+AI messages remain **separate** from the actual customer conversation.
+
+SupportAgent.NET assists the human agent. It does **not** automatically send customer replies.
+
+```text
+Ticket
+  ↓
+Support Agent
+  ↓
+AI Conversation
+  ↓
+LLM
+  ↓
+Tools + Knowledge
+  ↓
+Grounded answer
+  ↓
+Suggested reply
+  ↓
+Human review
+```
+
+Open the workspace at **http://localhost:5173/tickets**.
+
+---
+
+## Conversation State
+
+AI conversations are stored in SQL Server:
+
+- `AIConversations`
+- `AIConversationMessages`
+- `AIConversationToolAudits`
+
+The assistant can maintain context across follow-up questions.
+
+Example:
+
+1. Agent: *"Who is customer 101?"*
+2. Then: *"What should I tell them about their order?"*
+
+The conversation state is preserved via `conversationId`.
+
+Dynamic information is still retrieved through tools rather than trusted from stale chat history.
+
+Conversation history sent to the model is limited to prevent unlimited token usage.
+
+Default:
+
+```json
+{
+  "Copilot": {
+    "MaxConversationMessages": 12,
+    "MaxTicketMessagesInContext": 10
+  }
+}
+```
+
+Ticket context sent to the model is intentionally compact:
+
+- ticket ID, subject, status, priority, customer ID
+- recent ticket messages only
+
+---
+
+## Suggested Replies
+
+The support assistant can generate structured draft replies for human review.
+
+### POST /api/copilot/ask
+
+Ask a ticket-aware question. Creates or reuses an AI conversation.
+
+```bash
+curl -X POST http://localhost:5191/api/copilot/ask \
+  -H "Content-Type: application/json" \
+  -d '{
+    "ticketId": 1001,
+    "conversationId": null,
+    "message": "What is happening with this customer?"
+  }'
+```
+
+Example response:
+
+```json
+{
+  "conversationId": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+  "answer": "Customer 101 opened ticket 1001 about order status.",
+  "toolsUsed": [
+    {
+      "name": "GetCustomer",
+      "arguments": { "customerId": 101 }
+    }
+  ],
+  "sources": []
+}
+```
+
+Send the returned `conversationId` on follow-up questions in the same ticket context.
+
+### POST /api/copilot/draft-reply
+
+Generate a suggested customer reply. Does **not** send email or add ticket messages.
+
+```bash
+curl -X POST http://localhost:5191/api/copilot/draft-reply \
+  -H "Content-Type: application/json" \
+  -d '{"ticketId": 1001}'
+```
+
+Example response:
+
+```json
+{
+  "draft": {
+    "subject": "Update on your order",
+    "body": "Hi John, thanks for contacting us. I checked your order and it is currently processing.",
+    "tone": "professional",
+    "confidence": 0.92
+  },
+  "toolsUsed": [],
+  "sources": []
+}
+```
+
+---
+
+## API Endpoints
+
+| Endpoint | Description |
+|---|---|
+| `GET /api/health` | Health check |
+| `GET /api/customers/{id}` | Get customer |
+| `GET /api/orders/{id}` | Get order |
+| `GET /api/customers/{customerId}/orders` | List customer orders |
+| `GET /api/tickets` | List tickets |
+| `GET /api/tickets/{id}` | Get ticket |
+| `GET /api/tickets/{id}/messages` | Get ticket messages |
+| `POST /api/ai/chat` | General AI chat with tool calling |
+| `POST /api/copilot/ask` | Ticket-aware AI copilot |
+| `POST /api/copilot/draft-reply` | Suggested reply draft |
+| `GET /api/knowledge/search?query=` | Direct knowledge search |
+| `POST /api/knowledge/documents` | Add knowledge document |
+| `POST /api/knowledge/embeddings/rebuild` | Backfill chunk embeddings |
+
+Swagger UI (Development): **http://localhost:5191/swagger**
+
+---
+
+## Current Development Status
+
+**Implemented (Phases 1–7)**
+
+- ASP.NET Core Web API + React frontend
+- SQL Server + EF Core with sample seed data
+- Customer, order, ticket, and ticket message services
+- Provider-independent AI gateway (Ollama + OpenAI)
+- Native LLM tool calling (`GetCustomer`, `GetOrderStatus`, `SearchKnowledgeBase`)
+- RAG pipeline with chunking and hybrid semantic search
+- Embeddings stored in SQL Server
+- Ticket support workspace with AI assistant panel
+- Persisted AI conversation state
+- Structured suggested replies for human review
+- Tool execution audit records
+
+**Not implemented yet**
+
+- Automatic email sending
+- Native vector database (Pinecone, pgvector, Azure AI Search)
+- Document upload UI
+- PDF extraction
+- Authentication / multi-tenancy
+- Billing, refunds, autonomous agents
+- Additional tools such as `SendEmail` or `CreateInvoice`
+
+---
+
+## License
+
+Open source. License to be added.
+# Authentication and Multi-Tenancy
+
+SupportAgent.NET uses ASP.NET Core Identity with GUID user and role keys. Every user belongs to one organization, and tenant-owned records carry an `OrganizationId` that is enforced by EF Core global query filters. The organization is read from the authenticated server-side claims context; it is never accepted from browser input or an LLM tool call.
+
+```text
+User
+  -> HTTP-only Identity cookie
+  -> Organization claim
+  -> tenant-scoped business services
+  -> constrained AI tools
+  -> tenant-scoped SQL data
+```
+
+Roles are enforced by backend authorization policies:
+
+- `Admin`: all tenant support data, AI, knowledge management, embedding rebuild, and AI usage reporting.
+- `SupportAgent`: support data, AI/copilot, suggested reply drafts, and knowledge search.
+- `Viewer`: read-only customer, order, ticket, and ticket-message access. No AI, knowledge, or administration access.
+
+Self-registration is controlled by `Authentication:AllowSelfRegistration`. It defaults to `false` and is enabled in Development. Registering creates a new organization and its first Admin. Organization slugs are normalized and protected by a unique database index.
+
+Authentication uses an HTTP-only cookie; the React application stores no token in local storage. Before a state-changing request, React calls `GET /api/auth/csrf`, receives an antiforgery request token, and sends it in the `X-CSRF-TOKEN` header. ASP.NET Core validates that token against its antiforgery cookie. Login, registration, logout, AI requests, and knowledge writes are protected by this mechanism.
+
+Development-only users are seeded under **SupportAgent Demo**:
+
+| Role | Email | Development password |
+| --- | --- | --- |
+| Admin | `admin@supportagent.local` | `SupportAgent123!` |
+| SupportAgent | `agent@supportagent.local` | `SupportAgent123!` |
+| Viewer | `viewer@supportagent.local` | `SupportAgent123!` |
+
+These accounts are created only when the API runs in Development. Apply migrations before starting the updated application:
+
+```powershell
+dotnet ef database update --project src/SupportAgent.Infrastructure --startup-project src/SupportAgent.Api
+```
+
+## AI Usage Tracking
+
+Successful Chat, CopilotAsk, and DraftReply operations record organization, user, provider, model, input/output/total tokens, duration, request type, and timestamp. Prompts and responses are not copied into usage records. Admins can view their current organization’s monthly totals at `GET /api/admin/ai-usage` or `/admin/usage`.
+
+AI-heavy endpoints use ASP.NET Core partitioned rate limiting, keyed by authenticated user ID. Configure the per-minute limit with `RateLimiting:AIRequestsPerMinute`.
+
+AI provider keys remain backend-only. AI tools keep their original schemas and cannot choose an organization. Suggested replies remain drafts for human review and are never sent automatically.
+
+> SupportAgent.NET is a starter/reference project. Perform a full security review, configure production HTTPS/cookie policy, secrets, monitoring, and operational controls before deploying it to production.
+
+## Ticket Management
+
+Admin and SupportAgent users can create tenant-scoped tickets for existing customers, update status and priority, and add human agent replies. A new ticket creates its initial message as a customer message.
+
+```text
+Create Ticket → Customer → Initial Message → Support Agent
+              → AI Assistance → Human-approved Reply → Close Ticket
+```
+
+AI-generated suggested replies remain drafts. They are never stored or sent automatically: an agent must choose **Use Draft** and then explicitly click **Send Reply**.
+
+## Document Knowledge Ingestion
+
+Admins can upload PDF, DOCX, and UTF-8 TXT documents from `/knowledge` or `POST /api/knowledge/upload`:
+
+```text
+Admin upload
+  -> format and size validation
+  -> in-memory text extraction
+  -> existing text chunker
+  -> configured embedding provider
+  -> tenant-scoped SQL knowledge store
+  -> SearchKnowledgeBase
+  -> grounded AI response
+```
+
+The default maximum upload size is 10 MB and can be changed with `KnowledgeUpload:MaxFileSizeMb`. PDF extraction reads embedded text only; scanned/image-only PDFs are rejected because OCR is not included. Raw files are processed in memory and are not retained on disk or written to `wwwroot`. Only extracted chunks and safe document metadata are persisted.
+
+Knowledge remains tenant scoped. Admins can upload and delete; Admin and SupportAgent users can list document metadata; Viewer users cannot access knowledge APIs or the `/knowledge` page.
+
+Example request (obtain an antiforgery token and authenticated cookie first):
+
+```bash
+curl -b cookies.txt -H "X-CSRF-TOKEN: $CSRF_TOKEN" \
+  -F "file=@returns-and-refunds.pdf;type=application/pdf" \
+  -F "title=Returns and Refunds" \
+  http://localhost:5191/api/knowledge/upload
+```
+
+List and delete documents:
+
+```text
+GET    /api/knowledge/documents
+GET    /api/knowledge/documents/{id}
+DELETE /api/knowledge/documents/{id}
+```
+
+## Support Workspace
+
+The tenant-scoped support workspace provides server-side ticket search by ticket ID, subject, customer name, or customer email. Status and priority filters, an assigned-to-me filter, and newest, oldest, priority, or recently-updated sorting can be combined in one request.
+
+Admin and SupportAgent users can assign tickets to an active Admin or SupportAgent in the same organization, assign a ticket to themselves, update ticket state, reply to customers, and maintain a separate internal-notes timeline. Internal notes are never mixed into the customer conversation and are unavailable to Viewer users.
+
+Each ticket shows compact customer context, the three most recent orders, the three most recent related tickets, created and updated timestamps, and tenant-scoped summary counts for open, in-progress, high-priority, unassigned, and closed-today tickets.
+
+The AI panel can return an answer, confidence score, sources, and optional suggested actions. Suggested actions are advisory only. **Use Draft** copies an AI-generated draft into the normal agent reply editor for review and editing; it does not send the message. AI never sends replies, changes ticket status or priority, or assigns tickets automatically.
+
+## Customer Portal
+
+Customer accounts use the existing Identity login and are linked server-side to one tenant-scoped customer profile. After login they enter `/portal`, where they can view their own requests, create a request, optionally select one of their own orders, and continue the conversation at `/portal/tickets/:id`.
+
+```text
+Customer -> Login -> My Tickets -> Create Ticket -> Send Message
+         -> Human Support Agent responds -> Customer replies
+```
+
+Portal APIs are `GET /api/portal/me`, `GET|POST /api/portal/tickets`, `GET /api/portal/tickets/{id}`, `GET|POST /api/portal/tickets/{id}/messages`, and `GET /api/portal/orders`. Customer and organization IDs are never accepted from the browser; both are resolved from the authenticated account. Cross-customer ticket and order access returns `404`.
+
+Customer conversation is **Customer ↔ Human Support Agent**. The internal assistant is **Human Support Agent ↔ AI**. Customers cannot access internal notes, AI conversations, tools, sources, knowledge management, assignment, status controls, or administration. AI never sends messages automatically.
+## Invoice Suggested Actions
+
+The staff AI copilot can recommend **View invoice**, **Download invoice PDF**, **View customer invoices**, and
+**Check customer balance**. These actions are always initiated by a human: the LLM recommends, the human clicks,
+the backend validates the ticket, tenant, customer, and invoice, and then the normal .NET invoice service executes.
+Navigation and download URLs are generated only by the server from validated invoice IDs.
+
+Invoice suggested actions are read-only. The AI cannot create, cancel, modify, refund, delete, or record payment
+against an invoice, and these staff actions are not exposed in the customer portal.
+
+## Natural-Language Business Queries
+
+Authenticated administrators and support agents can use **Business Intelligence** at `/business-query` for
+questions such as “Show overdue invoices”, “Which products are low in stock?”, and “Show invoice totals grouped
+by customer”. The same capability is available to the support copilot through the controlled
+`QueryBusinessData` native tool.
+
+The flow is: question → provider-independent LLM QueryPlan → .NET validator → tenant-filtered EF Core query →
+structured result → grounded AI explanation. The LLM never receives database credentials and never executes SQL.
+Only explicitly registered entities, fields, relationships, operators, and aggregations are available. Queries
+are read-only, limited to 100 rows, time-bounded, and audited without storing returned business rows.
+
+Database values are treated as untrusted data rather than instructions. Runtime queries retain EF Core global
+tenant filters, and `OrganizationId` cannot be selected or supplied by either the model or frontend. To extend the
+internal demo module, register a new entity and its fields in `BusinessSchemaService`, then add its controlled EF projection to
+`BusinessQueryExecutor`. External sources use the separate dynamic discovery and approval flow below.
+# Business intelligence optimization
+
+Business Intelligence uses a deterministic relevance selector to send at most four related allowlisted entities to the planner. The full schema and validator remain the security boundary. Trusted computed fields (`IsOverdue`, `IsFullyPaid`, and `IsLowStock`) are calculated in .NET; the model never calculates financial values. Planner and explanation usage are recorded separately, and the UI formats display labels, money, dates, booleans, empty results, and query details for people rather than exposing raw schema values.
+
+## External ERP / CRM Connections
+
+### Dynamic External Schema Mapping
+
+SupportAgent.NET does not require predefined external table names. Physical objects such as `tbl_sal_mst` and `cus_mst` can be exposed as logical `SalesInvoices` and `Customers` through administrator-owned metadata—without adding table-specific C# classes.
+
+The setup flow is: connect with a server-side secret reference, discover tables/views and columns, explicitly approve objects and fields, optionally map friendly names and relationships, optionally group them into an AI data scope, then query through the validated read-only pipeline. New objects and fields remain unavailable until approved.
+
+Schema sent to AI is reduced as follows:
+
+`all database entities -> approved entities -> selected scope -> runtime-relevant entities`
+
+For production integrations, prefer read-only views such as `ai_customers`, `ai_sales`, and `ai_inventory`. Views can hide sensitive fields, stabilize legacy schemas, simplify joins, and restrict rows. Connection strings remain in User Secrets, environment variables, or another secure configuration provider and never enter browser responses, prompts, or audit records.
+
+### External Relationship Mapping
+
+External tables can participate in joined business questions only after their entities, fields, and relationships are explicitly approved. SQL Server foreign keys are discovered as suggestions; discovery alone grants no query access. An administrator can approve a discovered relationship or define one manually using approved entity and field dropdowns. Raw `ON` expressions and arbitrary SQL are never accepted.
+
+The flow is: approved entities → approved fields → approved relationships → optional AI data scope → relevant schema selection → logical `BusinessQueryPlan` → validated .NET JOIN compiler.
+
+For example, a physical foreign key `kits.owner_id → users.id` can be represented logically as `Kits.Owner → Users`. Separate semantic paths between the same entities remain separate, such as `Owner`, `CreatedByUser`, and `UpdatedByUser`, with optional descriptions and concepts helping the planner choose correctly. Related fields use logical paths such as `Owner.Email`; controlled traversal is limited to three relationships. Ambiguous paths require clarification.
+
+The compiler resolves every logical path from persisted, tenant-scoped metadata and emits one bounded, parameterized `SELECT` with deterministic `LEFT JOIN` behavior. One-to-many results are not silently deduplicated; plans may use a trusted distinct count when the requested metric requires counting base records. Query Details exposes logical relationship paths, never physical SQL.
+
+Phase 14 adds optional, read-only SQL Server sources. The SupportAgent database remains the application database. The security chain is: external SQL Server → read-only views/login → connector discovery → administrator-approved mappings → logical `BusinessSchema` → relevant schema selection → LLM-created `BusinessQueryPlan` → validator → .NET parameterized SELECT compiler → limited result → AI explanation. The LLM never receives credentials, physical SQL, or permission to write.
+
+Configure a secret outside persisted application rows:
+
+```powershell
+dotnet user-secrets set "ExternalDataSources:ERP_DEMO:ConnectionString" "Server=localhost;Database=SupportAgentExternalDemo;Integrated Security=true;TrustServerCertificate=true"
+```
+
+### Phase 14.2 configuration and use-case roadmap
+
+Use this checklist when connecting and validating a real external SQL Server database. The names below are examples;
+runtime querying is driven by the mappings saved by an administrator and does not require matching these names.
+
+#### 1. Prepare read-only database access
+
+Create a dedicated login with `SELECT` permission only on the tables or views intended for reporting. Prefer stable,
+purpose-built views that exclude passwords, authentication data, secrets, tokens, and other sensitive columns. Confirm
+that the API host can reach SQL Server and that TLS and certificate settings match the environment.
+
+#### 2. Store the connection string outside the application database
+
+The **Secret key** entered in the UI is a configuration reference, not a connection string. For example, entering
+`ERP_MAIN_DB` means the API resolves `ExternalDataSources:ERP_MAIN_DB:ConnectionString`.
+
+```powershell
+dotnet user-secrets set `
+  "ExternalDataSources:ERP_MAIN_DB:ConnectionString" `
+  "Server=<SERVER>;Database=<DATABASE>;User ID=<READ_ONLY_USER>;Password=<PASSWORD>;Encrypt=True;TrustServerCertificate=True;Connect Timeout=30;" `
+  --project "src/SupportAgent.Api/SupportAgent.Api.csproj"
+```
+
+For Windows authentication during local development:
+
+```powershell
+dotnet user-secrets set `
+  "ExternalDataSources:ERP_MAIN_DB:ConnectionString" `
+  "Server=localhost;Database=<DATABASE>;Trusted_Connection=True;TrustServerCertificate=True;" `
+  --project "src/SupportAgent.Api/SupportAgent.Api.csproj"
+```
+
+Verify only the configured reference names when troubleshooting; avoid copying secrets into logs or screenshots:
+
+```powershell
+dotnet user-secrets list --project "src/SupportAgent.Api/SupportAgent.Api.csproj" |
+  Where-Object { $_ -like "ExternalDataSources:*:ConnectionString*" } |
+  ForEach-Object { ($_ -split " = ", 2)[0] }
+```
+
+Environment-variable alternative:
+
+```text
+SUPPORTAGENT_DATASOURCE_ERP_MAIN_DB=<connection string>
+```
+
+Restart the API after adding or changing a secret.
+
+#### 3. Register and test the source
+
+1. Sign in as an Admin and open `/admin/data-sources`.
+2. Enter a display name, select SQL Server, and enter only the secret reference such as `ERP_MAIN_DB`.
+3. Add the source and select **Test connection**.
+4. Resolve network, credentials, database access, TLS, or read-only permission errors before continuing.
+5. Select **Discover / refresh schema**. Discovery does not approve anything automatically.
+
+#### 4. Approve entity and field mappings
+
+For each table or view that AI may query:
+
+1. Open the discovered object.
+2. Assign a stable logical entity name, display name, description, and useful concepts.
+3. Select only safe columns required by supported use cases.
+4. Assign logical field names, display labels, descriptions, and concepts.
+5. Leave credentials, hashes, tokens, security fields, and unnecessary personal data unapproved.
+6. Save the mapping and reopen it to confirm the selected columns were persisted.
+
+Physical names may be legacy-specific. For example, a physical `q_alpha.event_stamp` may be exposed logically as
+`Activities.ActivityDate`. The planner sees the logical schema; the compiler resolves the approved physical mapping.
+
+#### 5. Configure recency for latest/oldest questions
+
+Approve the appropriate date/time column and select it as the entity's **Default date/time field for latest and oldest
+queries**. This setting is required for questions such as "Show the latest 10 activities." The runtime uses
+`DefaultRecencyField`; it must not guess from status or an unrelated date.
+
+Example:
+
+```text
+Physical: q_alpha.event_stamp
+Logical: Activities.ActivityDate
+DefaultRecencyField: ActivityDate
+```
+
+#### 6. Approve relationships
+
+Approve a discovered foreign key or create a manual relationship only after both entities and join fields are approved.
+Give each path a semantic logical name, description, and concepts so similarly shaped relationships remain distinct.
+
+```text
+Physical: kits.owner_id -> users.id
+Logical name: Owner
+Description: The user or customer who owns this record
+Concepts: owner, customer, person
+```
+
+If the same source entity also links to users through audit fields, configure separate paths such as `CreatedByUser` and
+`UpdatedByUser`. Questions then use logical related fields such as `Owner.FirstName`; raw join expressions are never
+accepted. If no safe display field is approved on the target entity, approve one or expect a safe configuration error
+instead of an identifier being presented as a name.
+
+#### 7. Create data scopes
+
+Create an optional scope and select the approved entity mappings it may expose. Scope behavior depends on stored mapping
+IDs, not the scope's display name. Renaming `Kits and Orders` to `ABC Test` without changing its members does not change
+query behavior. Include every entity required for an approved relationship traversal.
+
+#### 8. Enable and verify the source
+
+1. Enable the source after mappings, relationships, and scopes are ready.
+2. Open `/business-query`.
+3. Select the external source and, if applicable, its scope.
+4. Run a simple base-entity query first.
+5. Test recency sorting.
+6. Test each approved relationship and human-readable target field.
+7. Expand **Query details** and verify the source, scope, base entity, selected entities, relationship, selected fields,
+   sort, and limit.
+8. Confirm the Results table and natural-language answer describe the same validated rows.
+
+#### 9. Recommended verification use cases
+
+Base entity and recency:
+
+```text
+Show the latest 10 activities.
+```
+
+Expected: the configured logical entity only, sorted by its `DefaultRecencyField` descending.
+
+Relationship traversal:
+
+```text
+Show the latest 10 kits with the owner's name.
+```
+
+Expected: base fields plus approved `Owner.<name field>` paths. Rows whose foreign key is null may have empty related
+values because joins intentionally use `LEFT JOIN`.
+
+Require an existing relationship value:
+
+```text
+Show the latest 10 kits with the owner's name only where the owner ID is present.
+```
+
+Expected: an `IsNotNull` filter on the approved logical owner identifier plus the `Owner` relationship fields.
+
+Approved contact field:
+
+```text
+Show the latest 10 kits with the owner's email.
+```
+
+Expected: `Owner.Email` only when Email is explicitly approved and non-sensitive.
+
+Arbitrary-schema portability check:
+
+```text
+q_alpha.a_key       -> Events.EventId
+q_alpha.b_ref       -> Events.PersonId
+q_alpha.event_stamp -> Events.ActivityDate
+q_beta.b_key        -> People.PersonId
+q_beta.display_value -> People.DisplayValue
+Relationship: Events.Person -> People
+DefaultRecencyField: ActivityDate
+Question: Show the latest 10 events with the person's display value.
+```
+
+Expected: Events and People are selected from metadata, the Person relationship generates the join, ActivityDate controls
+sorting, and no production code change is required.
+
+#### 10. Operational and security verification
+
+- Mutation requests use the existing cookie authentication and antiforgery flow.
+- Only Admin users configure sources, mappings, relationships, and scopes.
+- Connection strings never enter application rows, browser responses, AI prompts, or audit records.
+- Discovery grants no query permission; only approved, queryable, non-sensitive fields enter `BusinessSchema`.
+- The LLM produces a logical `BusinessQueryPlan`, never executable SQL.
+- The validator rejects unknown entities, fields, relationships, operators, and excessive limits.
+- The compiler resolves identifiers from persisted metadata and produces one bounded, parameterized, read-only `SELECT`.
+- Returned rows are size- and count-limited, and query activity is audited without persisting result rows.
+- Explanation output is grounded in the validated result; SQL-like explanation text is replaced by a safe .NET summary.
+
+#### 11. Troubleshooting
+
+- **Secret is not configured:** ensure the UI secret reference exactly matches the configuration key and restart the API.
+- **Connection failed:** verify host reachability, database name, credentials, TLS settings, timeout, and `SELECT` permission.
+- **No entities available:** discover schema, approve at least one entity and safe field, save, and enable the source.
+- **Relationship unavailable:** approve both endpoint entities and join fields, then approve the relationship.
+- **Name returns an ID:** approve a safe target display field and give the relationship clear name/description/concepts.
+- **Latest query cannot run:** approve a date/time field and configure `DefaultRecencyField`.
+- **Related values are empty:** check whether the base foreign key is null or has a matching target row; `LEFT JOIN` retains
+  the base row.
+- **Schema drift:** refresh discovery and repair mappings for renamed or removed physical objects before re-enabling them.
+- **Pending EF model changes:** apply committed migrations; do not suppress `PendingModelChangesWarning`.
+- **Address already in use:** stop the older API process or use another configured port before starting a second instance.
+
+#### 12. Phase 14.2 completion checklist
+
+- [ ] Read-only database identity created and tested
+- [ ] Secret reference configured outside persisted application data
+- [ ] Source registered and connection tested
+- [ ] Schema discovered
+- [ ] Required entities explicitly approved
+- [ ] Required safe fields explicitly approved
+- [ ] Sensitive fields excluded
+- [ ] Logical metadata and concepts reviewed
+- [ ] Default recency fields configured
+- [ ] Relationships approved and disambiguated
+- [ ] Data scopes created and membership reviewed
+- [ ] Base, latest, relationship, null-related, and arbitrary-schema queries verified
+- [ ] Query Details matches the validated result
+- [ ] Admin authorization, CSRF, read-only permissions, limits, and auditing verified
+- [ ] API tests, backend build, and React build pass
+
+Alternatively set `SUPPORTAGENT_DATASOURCE_ERP_DEMO`. Never commit production credentials. Create a dedicated SQL login with `SELECT` only on approved tables or, preferably, safe views. Do not grant `db_owner`, `db_datawriter`, `ALTER`, `CONTROL`, `EXECUTE`, `INSERT`, `UPDATE`, or `DELETE`.
+
+The optional [demo script](scripts/external-erp-demo.sql) uses legacy physical names. Example mappings are `erp_customer.customer_code → Customers.CustomerCode`, `erp_customer.customer_name → Customers.Name`, and `erp_sales_invoice.doc_no → SalesInvoices.InvoiceNumber`.
+
+Supported discovery types include integer, decimal/money, bit, character, date/time, and uniqueidentifier values. Binary, image, XML, geography, hierarchy, stored procedures, custom SQL formulas, writes, PostgreSQL, MySQL, and automatic schema approval are not supported. A source is assumed to contain data belonging to its configured SupportAgent organization. For a shared external database, expose a tenant-specific database/view/login; external row-level tenant-column mapping is not implemented.
